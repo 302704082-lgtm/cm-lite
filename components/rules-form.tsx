@@ -19,14 +19,17 @@ export default function RulesForm({
   initialValues,
   initialSteps,
   initialBlank,
+  initialActive,
 }: {
   initialValues: Record<string, string>;
   initialSteps: ProfileStep[];
   initialBlank: boolean;
+  initialActive?: boolean;
 }) {
   const [values, setValues] = useState<Record<string, string>>(initialValues);
   const [steps, setSteps] = useState<ProfileStep[]>(initialSteps);
-  const [busy, setBusy] = useState<'save' | 'preview' | null>(null);
+  const [busy, setBusy] = useState<'save' | 'preview' | 'activate' | null>(null);
+  const [active, setActive] = useState(!!initialActive);
   const [msg, setMsg] = useState<string>(initialBlank ? '当前是空白：一个格子都没填，等你来填。' : '已载入上次保存的草稿。');
   const [result, setResult] = useState<PreviewResult | null>(null);
 
@@ -105,6 +108,43 @@ export default function RulesForm({
     }
   }
 
+  /** 启用：先保存、再试跑校验、通过后接进主流程 */
+  async function toggleActive() {
+    setBusy('activate');
+    setMsg(active ? '正在停用…' : '正在保存并启用…');
+    try {
+      if (!active) {
+        const s = await fetch('/api/rules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values, steps }),
+        });
+        const sj = await s.json();
+        if (sj.error) { setMsg(`保存失败：${sj.error}`); return; }
+      }
+      const r = await fetch('/api/rules/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activate: !active }),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setMsg(`${r.status} · ${j.error}`);
+        return;
+      }
+      setActive(j.active);
+      setMsg(
+        j.active
+          ? `已启用「${j.name}」。全平台现在按这套规矩走：${(j.classes ?? []).join(' / ')}，证据包与拦截开关同步生效。`
+          : '已停用，主流程回退到内置默认规则。',
+      );
+    } catch (e) {
+      setMsg(`操作失败：${e instanceof Error ? e.message : '网络错误'}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function clearAll() {
     setValues({});
     setSteps([]);
@@ -117,21 +157,29 @@ export default function RulesForm({
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-slate-700">{msg}</div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button className={btnGhost} onClick={clearAll} disabled={busy !== null}>
               回到空白
             </button>
             <button className={btnGhost} onClick={save} disabled={busy !== null}>
               {busy === 'save' ? '保存中…' : '保存草稿'}
             </button>
-            <button className={btnPrimary} onClick={runPreview} disabled={busy !== null}>
+            <button className={btnGhost} onClick={runPreview} disabled={busy !== null}>
               {busy === 'preview' ? '推演中…' : '试跑：看能不能跑通'}
+            </button>
+            <button
+              className={active ? btnGhost : btnPrimary}
+              onClick={toggleActive}
+              disabled={busy !== null}
+            >
+              {busy === 'activate' ? '处理中…' : active ? '停用（回退内置规则）' : '启用这套规矩'}
             </button>
           </div>
         </div>
         <p className="mt-2 text-[11px] leading-5 text-slate-400">
           灰色小字是「你们公司可能是这样」的建议值，仅供参考，<span className="font-medium text-slate-600">不会自动填进去</span>。
-          试跑是沙盒推演，不写构型项、不写变更单、不动现有演示数据。
+          试跑是沙盒推演，不写业务数据；<span className="font-medium text-slate-600">「启用」才会把这套规矩接进主流程</span>（件号、类别、审批链、影响项、证据包、拦截开关）。
+          没启用时线上照旧，不会坏。
         </p>
       </Card>
 

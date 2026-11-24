@@ -7,9 +7,9 @@ import {
   CHANGE_STATUS_NAMES,
   IMPACT_ITEMS,
   ROLE_NAMES,
-  type ImpactKey,
   type RoleCode,
 } from '@/lib/constants';
+import { getEffectiveRules, slotToLabel } from '@/lib/profile';
 import { toCST } from '@/lib/format';
 import { Badge, Card, Empty, PageHeader, Td, Th } from '@/components/ui';
 import { CloseButton, ExecutePanel, SignPanel, ToCrButton } from '@/components/change-actions';
@@ -43,14 +43,23 @@ export default async function ChangeDetailPage({ params }: { params: Promise<{ i
   const parent = change.parent_id ? await getChange(user.tenantId, change.parent_id) : null;
   const pending = approvals.find((a) => a.signed_at === null) ?? null;
 
-  let impact: Partial<Record<ImpactKey, string>> = {};
+  let impact: Record<string, string> = {};
   if (change.impact_json) {
     try {
-      impact = JSON.parse(change.impact_json) as Partial<Record<ImpactKey, string>>;
+      impact = JSON.parse(change.impact_json) as Record<string, string>;
     } catch {
       impact = {};
     }
   }
+
+  const rules = await getEffectiveRules(user.tenantId);
+  // 老单据（内置默认规则时代）存的是 interchange/wip 等旧键，新单据按配置存 i0/i1…
+  // 两边兼容：单据里出现配置键就按配置清单显示，否则按老 9 项显示。
+  const storedKeys = Object.keys(impact);
+  const useConfigKeys = storedKeys.some((k) => rules.impacts.some((i) => i.key === k));
+  const displayItems: { key: string; label: string }[] = useConfigKeys
+    ? rules.impacts.map((i) => ({ key: i.key, label: i.label }))
+    : IMPACT_ITEMS.map((i) => ({ key: i.key, label: i.label }));
 
   const facts: [string, React.ReactNode][] = [
     ['单号', <span key="c" className="font-mono text-xs">{change.code}</span>],
@@ -60,7 +69,7 @@ export default async function ChangeDetailPage({ params }: { params: Promise<{ i
     ['变更对象', change.ci_pn ? <span key="ci" className="font-mono text-xs">{change.ci_pn}</span> : '—'],
     ['版本', `${change.from_rev ?? '—'} → ${change.to_rev ?? '（换号）'}`],
     ['新件号', change.new_pn ? <span key="np" className="font-mono text-xs">{change.new_pn}</span> : '—'],
-    ['类别', change.class_result ? `${change.class_result} 类` : '—（PR 未定级）'],
+    ['类别', change.class_result ? slotToLabel(rules, change.class_result) : '—（PR 未定级）'],
     ['改级理由', change.class_reason || '—'],
     ['提出人', change.created_by],
     ['提出时间', toCST(change.created_at)],
@@ -103,7 +112,9 @@ export default async function ChangeDetailPage({ params }: { params: Promise<{ i
             <Card padded={false}>
               <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
                 <div className="text-sm font-semibold text-slate-800">3F 与影响分析</div>
-                <span className="text-[11px] text-slate-400">影响分析 9 项逐项必选（R6）</span>
+                <span className="text-[11px] text-slate-400">
+                  按「{rules.name}」的影响项清单，{displayItems.length} 项逐项必选（R6）
+                </span>
               </div>
               <div className="p-5">
                 <div className="mb-4 flex flex-wrap gap-2 text-xs">
@@ -126,7 +137,7 @@ export default async function ChangeDetailPage({ params }: { params: Promise<{ i
                 </div>
 
                 <div className="grid gap-1.5 sm:grid-cols-3">
-                  {IMPACT_ITEMS.map((it) => {
+                  {displayItems.map((it) => {
                     const v = impact[it.key];
                     return (
                       <div

@@ -11,22 +11,22 @@ const LAYERS = [
   {
     no: '空白',
     title: '一个格子都没填',
-    desc: '系统不知道件号怎么编、改分几类、谁签。现在点试跑，它会明确告诉你缺什么。',
-    tag: '你现在在这',
+    desc: '系统不知道件号怎么编、改分几类、谁签。这时候点试跑，它会明确告诉你缺什么。',
+    tag: '起点',
     tone: 'gray' as const,
   },
   {
     no: '第一层 · 表单',
     title: '填「是什么」',
     desc: '件号分几段、改分几类、每类几步、谁能签、要交哪些材料。',
-    tag: '本轮开放 · 你自己填',
+    tag: '已开放 · 填完可启用',
     tone: 'green' as const,
   },
   {
     no: '第二层 · 条件规则',
     title: '填「如果…就…」',
     desc: '关键件自动升大改、外形变了强制换号、装机版本对不上就预警。',
-    tag: '本轮只列清单',
+    tag: '只列清单',
     tone: 'blue' as const,
   },
   {
@@ -60,14 +60,37 @@ export default async function RulesPage() {
     );
   }
   const blank = !p || Object.values(values).every((v) => !v);
+  const active = p?.status === 'ACTIVE';
 
   return (
     <div>
       <PageHeader
-        title="规则配置 · 第一层（空白）"
-        desc="把制度填成一张表。这一轮只开放第一层，填完自己点「试跑」看能不能跑成能用的。"
-        actions={<Badge tone={blank ? 'gray' : 'green'}>{blank ? '当前：空白' : '当前：草稿'}</Badge>}
+        title="规则配置"
+        desc="把制度填成一张表。填完点「试跑」看能不能跑通，再点「启用」让全平台按这套规矩走。"
+        actions={
+          <Badge tone={active ? 'green' : blank ? 'gray' : 'blue'}>
+            {active ? '已生效' : blank ? '当前：空白' : '当前：草稿'}
+          </Badge>
+        }
       />
+
+      {active ? (
+        <Card className="mb-5 border-emerald-200 bg-emerald-50">
+          <div className="text-sm font-semibold text-emerald-800">这套规矩正在生效</div>
+          <div className="mt-1 text-xs leading-6 text-emerald-700">
+            新建构型项的件号、变更分类、审批步骤、影响分析项、证据包目录、以及各类拦截开关，
+            现在都按你填的这套走。改动后要重新「启用」才会更新。
+          </div>
+        </Card>
+      ) : (
+        <Card className="mb-5 border-amber-200 bg-amber-50">
+          <div className="text-sm font-semibold text-amber-800">当前用的是内置默认规则</div>
+          <div className="mt-1 text-xs leading-6 text-amber-700">
+            你填的内容只是草稿，还没接进主流程。填完点「启用这套规矩」，
+            全平台才会按它执行；没启用时线上一切照旧，不会坏。
+          </div>
+        </Card>
+      )}
 
       <Card className="mb-5">
         <div className="mb-3 text-sm font-semibold text-slate-800">空白 + 三层，分别是什么</div>
@@ -85,11 +108,11 @@ export default async function RulesPage() {
         </div>
         <p className="mt-3 text-[11px] leading-5 text-slate-400">
           一句话区分：<span className="font-medium text-slate-600">第一层填「是什么」，第二层填「如果…就…」，第三层才动程序</span>。
-          绝大多数调整停在第一层；这一轮先让你亲手把第一层从空白填成一套能跑的规矩。
+          绝大多数调整停在第一层；第一层填完启用后，主流程会真正读它。
         </p>
       </Card>
 
-      <RulesForm initialValues={values} initialSteps={steps} initialBlank={blank} />
+      <RulesForm initialValues={values} initialSteps={steps} initialBlank={blank} initialActive={active} />
     </div>
   );
 }

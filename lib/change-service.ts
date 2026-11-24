@@ -1,7 +1,8 @@
 import { q, q1, insert, exec, db } from './db';
 import { ApiError } from './api';
-import { CLASS_CHAINS, ROLE_NAMES, type ChangeClass } from './constants';
+import { CLASS_CHAINS, ROLE_NAMES, type RoleCode } from './constants';
 import { chainFor, normalizeImpact, validateWizard, type WizardInput } from './rules';
+import { classToSlot, getEffectiveRules, slotToLabel } from './profile';
 import { logEvent } from './events';
 import type { SessionUser } from './session';
 import type { Approval, Change, Ci } from './types';
@@ -67,11 +68,17 @@ export async function createCrFromPr(
     input.ci_pn ?? pr.ci_pn ?? '',
   ]);
 
-  validateWizard(input, ci);
+  const rules = await getEffectiveRules(user.tenantId);
+  validateWizard(input, ci, rules);
 
-  // 拟制步由创建人自动签署，创建人必须具备 DESIGN_ENG（§5.2 末段）
-  if (user.role !== 'DESIGN_ENG') {
-    throw new ApiError(403, '只有设计工程师（DESIGN_ENG）可以拟制变更单，第 1 步需由创建人自动签署');
+  // 拟制步由创建人自动签署，创建人必须具备第 1 步要求的角色
+  const chain = chainFor(input.class_result, rules);
+  const firstRole = (chain[0]?.role_code ?? 'DESIGN_ENG') as RoleCode;
+  if (user.role !== firstRole) {
+    throw new ApiError(
+      403,
+      `只有「${ROLE_NAMES[firstRole] ?? firstRole}」可以拟制变更单，第 1 步需由创建人自动签署`,
+    );
   }
 
   // 大改换号：新件号不能与库里已有件号冲突（R1）
@@ -83,7 +90,8 @@ export async function createCrFromPr(
     if (dup) throw new ApiError(409, `新件号 ${input.new_pn} 已存在（${dup.name}），请另取件号`);
   }
 
-  const cls = input.class_result as ChangeClass;
+  const cls = classToSlot(rules, input.class_result); // 落库用内部槽位，兼容 CHECK 约束
+  const clsLabel = slotToLabel(rules, cls);
   const code = await nextCode(user.tenantId, 'CR');
 
   const id = await insert(
@@ -106,13 +114,12 @@ export async function createCrFromPr(
       input.f_function ? 1 : 0,
       cls,
       input.class_reason ?? null,
-      JSON.stringify(normalizeImpact(input.impact)),
+      JSON.stringify(normalizeImpact(input.impact, rules)),
       input.wip_action ?? null,
       user.name,
     ],
   );
 
-  const chain = chainFor(cls);
   const stmts = chain.map((s, idx) => ({
     sql: `INSERT INTO change_approvals (change_id, step_no, step_name, role_code, signer_user_id, decision, comment, signed_at)
           VALUES (?,?,?,?,?,?,?,?)`,
@@ -140,7 +147,7 @@ export async function createCrFromPr(
     'CR_CREATE',
     'change',
     id,
-    `${code} 定级 ${cls} 类，生成 ${chain.length} 步审批链（第 1 步已由创建人签署）`,
+    `${code} 定级「${clsLabel}」，生成 ${chain.length} 步审批链（第 1 步已由创建人签署）`,
   );
 
   return { id, code, steps: chain.length };
@@ -182,13 +189,17 @@ export async function signStep(
     );
   }
 
-  // ① 职责分离：同一自然人不得在本单签署两个步骤
-  const signedElsewhere = approvals.find((a) => a.signer_user_id === user.userId);
-  if (signedElsewhere) {
-    throw new ApiError(
-      409,
-      `该步骤必须由另一位签署人完成（当前用户已签署第 ${signedElsewhere.step_no} 步「${signedElsewhere.step_name}」）。`,
-    );
+  const rules = await getEffectiveRules(user.tenantId);
+
+  // ① 职责分离（可由配置关闭）：同一自然人不得在本单签署两个步骤
+  if (rules.switches.sod) {
+    const signedElsewhere = approvals.find((a) => a.signer_user_id === user.userId);
+    if (signedElsewhere) {
+      throw new ApiError(
+        409,
+        `该步骤必须由另一位签署人完成（当前用户已签署第 ${signedElsewhere.step_no} 步「${signedElsewhere.step_name}」）。`,
+      );
+    }
   }
 
   // ② 角色校验
@@ -253,6 +264,7 @@ export async function executeChange(
 
   const cnCode = await nextCode(user.tenantId, 'CN');
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const rules = await getEffectiveRules(user.tenantId);
 
   const cnId = await insert(
     `INSERT INTO changes (tenant_id, code, kind, parent_id, model, ci_pn, from_rev, to_rev, new_pn, title, reason,
@@ -283,7 +295,6 @@ export async function executeChange(
     ]);
     if (dup) throw new ApiError(409, `新件号 ${cr.new_pn} 已被占用，无法落库`);
 
-    const isSw = oldCi.type === 'SOFTWARE';
     await db.batch(
       [
         {
@@ -297,7 +308,7 @@ export async function executeChange(
             oldCi.type,
             oldCi.parent_pn,
             oldCi.qty,
-            isSw ? 'V1.0' : 'A',
+            rules.ident.rev_format,
             oldCi.sn_controlled,
             oldCi.criticality,
             oldCi.owner,
@@ -371,7 +382,10 @@ export async function closeChange(user: SessionUser, changeId: number): Promise<
     [changeId],
   );
   if (!cn) throw new ApiError(409, '变更通知（CN）尚未执行，不能关闭');
-  if (cn.verified !== 1) throw new ApiError(409, '执行人未勾选「验证通过」，不能关闭');
+  const rules = await getEffectiveRules(user.tenantId);
+  if (rules.switches.verify && cn.verified !== 1) {
+    throw new ApiError(409, '执行人未勾选「验证通过」，不能关闭');
+  }
 
   await exec(
     `UPDATE changes SET status = 'CLOSED', closed_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`,

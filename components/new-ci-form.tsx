@@ -15,14 +15,30 @@ const TYPES = [
 export default function NewCiForm({
   model,
   parents,
+  ruleName,
+  revDefault,
 }: {
   model: string;
   parents: { pn: string; name: string }[];
+  ruleName?: string;
+  revDefault?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pn, setPn] = useState('');
+  const [type, setType] = useState('HARDWARE');
+
+  async function autoPn(nextType: string) {
+    try {
+      const res = await fetch(`/api/cis?type=${encodeURIComponent(nextType)}&model=${encodeURIComponent(model)}`);
+      const j = await res.json();
+      if (j.pn) setPn(j.pn);
+    } catch {
+      /* 留空也能由服务端自动生成 */
+    }
+  }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -35,12 +51,12 @@ export default function NewCiForm({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model,
-          pn: String(form.get('pn') ?? '').trim(),
+          pn: String(form.get('pn') ?? '').trim(), // 留空由服务端按规则生成
           name: String(form.get('name') ?? '').trim(),
           type: String(form.get('type')),
           parent_pn: String(form.get('parent_pn') ?? '') || null,
           qty: Number(form.get('qty') ?? 1),
-          rev: String(form.get('rev') ?? 'A') || 'A',
+          rev: String(form.get('rev') ?? '').trim() || undefined,
           status: String(form.get('status')),
           criticality: String(form.get('criticality')),
           owner: String(form.get('owner') ?? '').trim(),
@@ -52,8 +68,9 @@ export default function NewCiForm({
         setMsg({ type: 'err', text: `${res.status} · ${data.error}` });
         return;
       }
-      setMsg({ type: 'ok', text: `已创建 ${data.pn}` });
+      setMsg({ type: 'ok', text: `已创建 ${data.pn}（版本 ${data.rev}）` });
       (e.target as HTMLFormElement).reset();
+      setPn('');
       router.refresh();
     } catch {
       setMsg({ type: 'err', text: '网络异常，请重试' });
@@ -81,8 +98,26 @@ export default function NewCiForm({
 
       <form onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className={labelCls}>件号 *</label>
-          <input name="pn" className={inputCls} required placeholder="EX01-XXX-005" />
+          <label className={labelCls}>件号（留空自动生成）</label>
+          <div className="flex gap-2">
+            <input
+              name="pn"
+              className={inputCls}
+              value={pn}
+              onChange={(e) => setPn(e.target.value)}
+              placeholder="留空即按生效规则生成"
+            />
+            <button
+              type="button"
+              className="shrink-0 rounded-md border border-slate-300 bg-white px-2.5 text-xs text-slate-600 hover:bg-slate-50"
+              onClick={() => autoPn(type)}
+            >
+              生成
+            </button>
+          </div>
+          <div className="mt-1 text-[11px] text-slate-400">
+            {ruleName ? `当前按「${ruleName}」的规则编号` : '当前按内置规则编号'}
+          </div>
         </div>
         <div>
           <label className={labelCls}>名称 *</label>
@@ -90,7 +125,12 @@ export default function NewCiForm({
         </div>
         <div>
           <label className={labelCls}>类型</label>
-          <select name="type" className={inputCls} defaultValue="HARDWARE">
+          <select
+            name="type"
+            className={inputCls}
+            defaultValue="HARDWARE"
+            onChange={(e) => { setType(e.target.value); if (!pn) autoPn(e.target.value); }}
+          >
             {TYPES.map(([v, l]) => (
               <option key={v} value={v}>
                 {l}
@@ -110,8 +150,8 @@ export default function NewCiForm({
           </select>
         </div>
         <div>
-          <label className={labelCls}>初始版本</label>
-          <input name="rev" className={inputCls} defaultValue="A" />
+          <label className={labelCls}>初始版本（留空用规则默认值）</label>
+          <input name="rev" className={inputCls} defaultValue={revDefault ?? ''} placeholder="留空自动" />
         </div>
         <div>
           <label className={labelCls}>数量</label>
@@ -146,7 +186,7 @@ export default function NewCiForm({
             {msg ? (
               <span className={msg.type === 'ok' ? 'text-emerald-600' : 'text-rose-600'}>{msg.text}</span>
             ) : (
-              <span className="text-slate-400">件号全库唯一，重复会被 409 拦下并指出冲突项</span>
+              <span className="text-slate-400">件号留空按规则生成；手填重复会被拦下并指出冲突项</span>
             )}
           </div>
           <button type="submit" className={btnPrimary} disabled={busy}>

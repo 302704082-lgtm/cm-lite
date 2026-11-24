@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/session';
 import { listBaselines, listModels } from '@/lib/queries';
-import { BASELINE_KIND_NAMES } from '@/lib/constants';
+import { getEffectiveRules, baselineSlotToLabel } from '@/lib/profile';
 import { toCST } from '@/lib/format';
 import { Badge, Card, Empty, PageHeader, Td, Th } from '@/components/ui';
 import NewBaselineForm from '@/components/new-baseline-form';
@@ -16,7 +16,10 @@ export default async function BaselinesPage() {
 
   const models = await listModels(user.tenantId);
   const model = models[0] ?? 'EX-01';
-  const baselines = await listBaselines(user.tenantId, model);
+  const [baselines, rules] = await Promise.all([
+    listBaselines(user.tenantId, model),
+    getEffectiveRules(user.tenantId),
+  ]);
 
   return (
     <div>
@@ -26,7 +29,7 @@ export default async function BaselinesPage() {
       />
 
       <div className="mb-5">
-        <NewBaselineForm model={model} />
+        <NewBaselineForm model={model} baselineKinds={rules.baselines} />
       </div>
 
       <Card padded={false}>
@@ -57,7 +60,7 @@ export default async function BaselinesPage() {
                       </Link>
                     </Td>
                     <Td className="text-slate-800">{b.name}</Td>
-                    <Td className="text-xs text-slate-500">{BASELINE_KIND_NAMES[b.kind] ?? b.kind}</Td>
+                    <Td className="text-xs text-slate-500">{baselineSlotToLabel(rules, b.kind)}</Td>
                     <Td className="tnum text-xs">{b.item_count ?? 0}</Td>
                     <Td>
                       <Badge tone={b.status === 'FROZEN' ? 'green' : 'amber'}>

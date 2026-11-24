@@ -21,7 +21,7 @@ const schema = z.object({
   abca: z.boolean().default(false),
   abcb: z.boolean().default(false),
   abcc: z.boolean().default(false),
-  class_result: z.enum(['I', 'II', 'III']),
+  class_result: z.string().trim().min(1), // 类别代号由生效配置决定，不再写死
   class_reason: z.string().trim().nullable().optional(),
   impact: z.record(z.string(), impactValue),
   wip_action: z.string().trim().nullable().optional(),

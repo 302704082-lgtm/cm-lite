@@ -4,7 +4,21 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { inputCls, labelCls, btnPrimary } from './ui';
 
-export default function NewBaselineForm({ model }: { model: string }) {
+export default function NewBaselineForm({
+  model,
+  baselineKinds,
+}: {
+  model: string;
+  baselineKinds?: { label: string; slot: string }[];
+}) {
+  const kinds = baselineKinds?.length
+    ? baselineKinds
+    : [
+        { label: '需求基线', slot: 'REQUIREMENT' },
+        { label: '设计基线', slot: 'DESIGN' },
+        { label: '取证基线', slot: 'CERTIFICATION' },
+        { label: '其他', slot: 'OTHER' },
+      ];
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
@@ -23,7 +37,7 @@ export default function NewBaselineForm({ model }: { model: string }) {
           model,
           code: String(form.get('code') ?? '').trim(),
           name: String(form.get('name') ?? '').trim(),
-          kind: String(form.get('kind')),
+          kind: String(form.get('kind') ?? kinds[0]?.label ?? 'DESIGN'),
         }),
       });
       const data = await res.json();
@@ -68,11 +82,12 @@ export default function NewBaselineForm({ model }: { model: string }) {
         </div>
         <div>
           <label className={labelCls}>类型</label>
-          <select name="kind" className={inputCls} defaultValue="DESIGN">
-            <option value="REQUIREMENT">需求基线</option>
-            <option value="DESIGN">设计基线</option>
-            <option value="CERTIFICATION">取证基线</option>
-            <option value="OTHER">其他</option>
+          <select name="kind" className={inputCls} defaultValue={kinds[0]?.label ?? 'DESIGN'}>
+            {kinds.map((k) => (
+              <option key={k.label} value={k.label}>
+                {k.label}
+              </option>
+            ))}
           </select>
         </div>
         <div className="sm:col-span-3 flex items-center justify-between">

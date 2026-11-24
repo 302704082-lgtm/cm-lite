@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { getSession } from '@/lib/session';
 import { getChange, getCi } from '@/lib/queries';
+import { getEffectiveRules, toPublicRules } from '@/lib/profile';
 import { Empty, PageHeader } from '@/components/ui';
 import CrWizard from '@/components/cr-wizard';
 
@@ -54,6 +55,8 @@ export default async function NewChangePage({
   const ci = p.ci_pn ? await getCi(user.tenantId, p.ci_pn) : null;
   if (!ci) notFound();
 
+  const rules = toPublicRules(await getEffectiveRules(user.tenantId));
+
   return (
     <div>
       <PageHeader
@@ -72,6 +75,7 @@ export default async function NewChangePage({
         ci={{ pn: ci.pn, name: ci.name, rev: ci.rev, criticality: ci.criticality }}
         title={p.title}
         reason={p.reason}
+        rules={rules}
       />
     </div>
   );

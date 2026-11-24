@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { getSession } from '@/lib/session';
 import { diffBaselines, getBaseline, listBaselineItems, listBaselines } from '@/lib/queries';
-import { BASELINE_KIND_NAMES, CI_STATUS_NAMES } from '@/lib/constants';
+import { getEffectiveRules, baselineSlotToLabel } from '@/lib/profile';
+import { CI_STATUS_NAMES } from '@/lib/constants';
 import { toCST } from '@/lib/format';
 import { Badge, Card, Empty, PageHeader, Td, Th, btnPrimary } from '@/components/ui';
 import FreezeButton from '@/components/freeze-button';
@@ -28,6 +29,7 @@ export default async function BaselineDetailPage({
 
   const items = await listBaselineItems(id);
   const others = (await listBaselines(user.tenantId, bl.model)).filter((b) => b.id !== bl.id);
+  const rules = await getEffectiveRules(user.tenantId);
 
   const { to } = await searchParams;
   const toId = to ? Number(to) : null;
@@ -38,7 +40,7 @@ export default async function BaselineDetailPage({
     <div>
       <PageHeader
         title={`${bl.code} · ${bl.name}`}
-        desc={`${bl.model} · ${BASELINE_KIND_NAMES[bl.kind] ?? bl.kind} · ${items.length} 项 · 创建人 ${bl.created_by}`}
+        desc={`${bl.model} · ${baselineSlotToLabel(rules, bl.kind)} · ${items.length} 项 · 创建人 ${bl.created_by}`}
         actions={
           <Link href="/app/baselines" className="text-sm text-slate-500 hover:text-slate-700">
             ← 返回基线列表

@@ -13,7 +13,7 @@ export async function GET() {
       'SELECT id, status, name FROM rule_profiles WHERE tenant_id = ? ORDER BY id DESC LIMIT 1',
       [user.tenantId],
     );
-    if (!p) return ok({ blank: true, status: 'BLANK', values: {}, steps: [] });
+    if (!p) return ok({ blank: true, status: 'BLANK', active: false, values: {}, steps: [] });
 
     const settings = await q<{ field_key: string; field_value: string }>(
       'SELECT field_key, field_value FROM profile_settings WHERE profile_id = ?',
@@ -25,7 +25,7 @@ export async function GET() {
     );
     const values: Record<string, string> = {};
     for (const s of settings) values[s.field_key] = s.field_value;
-    return ok({ blank: false, status: p.status, name: p.name, values, steps });
+    return ok({ blank: false, status: p.status, active: p.status === 'ACTIVE', name: p.name, values, steps });
   });
 }
 

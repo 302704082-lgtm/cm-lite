@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/session';
 import { listBaselines, listEvents, listFittings, listUnits } from '@/lib/queries';
+import { getEffectiveRules } from '@/lib/profile';
 import { toCST } from '@/lib/format';
 import { Badge, Card, Empty, PageHeader, Td, Th } from '@/components/ui';
 import ExportPanel from '@/components/export-panel';
@@ -11,11 +12,12 @@ export default async function RecordsPage() {
   const user = await getSession();
   if (!user) redirect('/login');
 
-  const [events, units, fittings, baselines] = await Promise.all([
+  const [events, units, fittings, baselines, rules] = await Promise.all([
     listEvents(user.tenantId, 200),
     listUnits(user.tenantId),
     listFittings(user.tenantId),
     listBaselines(user.tenantId),
+    getEffectiveRules(user.tenantId),
   ]);
 
   const byUnit = new Map<number, typeof fittings>();
@@ -32,9 +34,9 @@ export default async function RecordsPage() {
 
       <Card className="mb-5">
         <div className="mb-3">
-          <div className="text-sm font-semibold text-slate-800">导出《构型状态一览表》</div>
+          <div className="text-sm font-semibold text-slate-800">导出证据包 / 构型状态一览表</div>
           <div className="text-[11px] text-slate-400">
-            件号 / 名称 / 版本 / 文件号 / 文件版 / 状态，按基线快照导出，可直接给审查方看
+            单张 CSV 是「一张表」；证据包是按规矩自动汇编的「一整套材料」，带封面与目录，可直接交给审查方
           </div>
         </div>
         <ExportPanel
@@ -45,6 +47,9 @@ export default async function RecordsPage() {
             model: b.model,
             items: b.item_count,
           }))}
+          ruleName={rules.name}
+          evidenceTitle={rules.evidenceTitle}
+          evidenceCount={rules.evidence.length}
         />
       </Card>
 

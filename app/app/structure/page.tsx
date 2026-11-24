@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/session';
 import { listCis, listModels } from '@/lib/queries';
+import { getEffectiveRules } from '@/lib/profile';
 import { CI_STATUS_NAMES, CI_TYPE_NAMES, CRITICALITY_NAMES } from '@/lib/constants';
 import { Badge, Card, PageHeader, Th, Td, Empty } from '@/components/ui';
 import NewCiForm from '@/components/new-ci-form';
@@ -53,6 +54,7 @@ export default async function StructurePage() {
   const model = models[0] ?? 'EX-01';
   const cis = await listCis(user.tenantId, model);
   const rows = buildRows(cis);
+  const rules = await getEffectiveRules(user.tenantId);
 
   return (
     <div>
@@ -62,7 +64,12 @@ export default async function StructurePage() {
       />
 
       <div className="mb-5">
-        <NewCiForm model={model} parents={cis.map((c) => ({ pn: c.pn, name: c.name }))} />
+        <NewCiForm
+          model={model}
+          parents={cis.map((c) => ({ pn: c.pn, name: c.name }))}
+          ruleName={rules.enabled ? rules.name : undefined}
+          revDefault={rules.ident.rev_format}
+        />
       </div>
 
       <Card padded={false}>

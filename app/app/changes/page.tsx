@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSession } from '@/lib/session';
 import { listChanges, listCis, listModels } from '@/lib/queries';
+import { getEffectiveRules, slotToLabel } from '@/lib/profile';
 import { CHANGE_KIND_NAMES, CHANGE_STATUS_NAMES } from '@/lib/constants';
 import { toCST } from '@/lib/format';
 import { Badge, Card, Empty, PageHeader, Td, Th } from '@/components/ui';
@@ -36,9 +37,10 @@ export default async function ChangesPage({
   const { kind, status } = await searchParams;
   const models = await listModels(user.tenantId);
   const model = models[0] ?? 'EX-01';
-  const [changes, cis] = await Promise.all([
+  const [changes, cis, rules] = await Promise.all([
     listChanges(user.tenantId, { kind: kind || undefined, status: status || undefined }),
     listCis(user.tenantId, model),
+    getEffectiveRules(user.tenantId),
   ]);
 
   return (
@@ -110,7 +112,7 @@ export default async function ChangesPage({
                     <Td className="text-xs">
                       {c.class_result ? (
                         <Badge tone={c.class_result === 'I' ? 'red' : c.class_result === 'II' ? 'amber' : 'gray'}>
-                          {c.class_result} 类
+                          {slotToLabel(rules, c.class_result)}
                         </Badge>
                       ) : (
                         <span className="text-slate-300">—</span>

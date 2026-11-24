@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { q1, exec } from '@/lib/db';
 import { ApiError, handle, ok, requireUser } from '@/lib/api';
 import { isInFrozenBaseline } from '@/lib/queries';
+import { getEffectiveRules } from '@/lib/profile';
 import { logEvent } from '@/lib/events';
 import type { Ci } from '@/lib/types';
 
@@ -15,6 +16,9 @@ const schema = z
     basis: z.string().trim().nullable().optional(),
     note: z.string().trim().nullable().optional(),
     qty: z.coerce.number().int().min(0).optional(),
+    // 这两个字段默认由变更流程写入；是否允许直接改，由规则的 frozen_no_edit 开关决定
+    rev: z.string().trim().min(1).optional(),
+    status: z.enum(['DRAFT', 'CONTROLLED', 'FROZEN', 'VOID']).optional(),
   })
   .strict();
 
@@ -30,8 +34,11 @@ export async function PATCH(
 
     const raw = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
-    // 先拦流程外写入：只要请求里带这两个字段就拒绝，不区分值是否相同
-    if ('rev' in raw || 'status' in raw) {
+    // R2：版本与状态默认只能由变更流程写入。
+    // 规则配置里的「冻结后禁止直接改版本」开关关掉后，允许直接改，但仍强制留痕。
+    const rules = await getEffectiveRules(user.tenantId);
+    const touchesControlled = 'rev' in raw || 'status' in raw;
+    if (touchesControlled && rules.switches.frozenNoEdit) {
       const frozen = await isInFrozenBaseline(user.tenantId, decoded);
       throw new ApiError(
         409,
@@ -62,7 +69,16 @@ export async function PATCH(
     args.push(ci.id);
     await exec(`UPDATE cis SET ${sets.join(', ')} WHERE id = ?`, args);
 
-    await logEvent(user.tenantId, user.name, 'CI_UPDATE', 'ci', decoded, `编辑构型项属性：${sets.join(', ')}`);
+    await logEvent(
+      user.tenantId,
+      user.name,
+      touchesControlled ? 'CI_UPDATE_CONTROLLED' : 'CI_UPDATE',
+      'ci',
+      decoded,
+      `编辑构型项属性：${sets.join(', ')}${
+        touchesControlled ? '（规则配置关闭了「冻结后禁止直接改版本」，本次直接改写已留痕）' : ''
+      }`,
+    );
     return ok();
   });
 }
