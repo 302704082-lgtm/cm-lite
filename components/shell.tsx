@@ -11,6 +11,7 @@ const NAV = [
   { href: '/app/changes', label: '变更', hint: 'PR / CR / CN' },
   { href: '/app/deviations', label: '偏离/让步', hint: '数量与时效' },
   { href: '/app/records', label: '纪实台账', hint: '事件与实物' },
+  { href: '/app/rules', label: '规则配置', hint: '第一层·空白' },
 ];
 
 export default function Shell({
