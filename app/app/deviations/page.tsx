@@ -5,6 +5,8 @@ import { DEVIATION_KIND_NAMES } from '@/lib/constants';
 import { isExpired, toCST } from '@/lib/format';
 import { Badge, Card, Empty, PageHeader, Td, Th } from '@/components/ui';
 import NewDeviationForm from '@/components/new-deviation-form';
+import GatePanel from '@/components/gate-panel';
+import { gateEnabled, listInstances } from '@/lib/flow';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,10 +16,15 @@ export default async function DeviationsPage() {
 
   const models = await listModels(user.tenantId);
   const model = models[0] ?? 'EX-01';
-  const [items, cis] = await Promise.all([
+  const [items, cis, requestForms, gateOn] = await Promise.all([
     listDeviations(user.tenantId),
     listCis(user.tenantId, model),
+    listInstances(user.tenantId, { scene: 'DEVIATION' }),
+    gateEnabled(user.tenantId, 'DEVIATION'),
   ]);
+  const approved = requestForms
+    .filter((f) => f.status === 'APPROVED')
+    .map((f) => ({ id: f.id, code: f.code, title: f.title }));
 
   return (
     <div>
@@ -26,8 +33,20 @@ export default async function DeviationsPage() {
         desc="偏离＝投产前不改文件、限批次；让步＝制造中带缺陷放行、仅本批。数量上限与有效期必填（R8）"
       />
 
+      <GatePanel
+        scene="DEVIATION"
+        title="偏离 / 让步申请单（登记生效前必办）"
+        desc="偏离与让步不是记一笔就完事：先提交申请单，写清类型、涉及构型项、适用范围与数量、有效期、补偿措施，检查「是否影响适航符合性」，再经提出申请 → 适航审查 → 批准三级签署。批准后才允许登记生效。"
+        instances={requestForms.map((f) => ({ id: f.id, code: f.code, title: f.title, status: f.status }))}
+        enabled={gateOn}
+      />
+
       <div className="mb-5">
-        <NewDeviationForm cis={cis.map((c) => ({ pn: c.pn, name: c.name }))} />
+        <NewDeviationForm
+          cis={cis.map((c) => ({ pn: c.pn, name: c.name }))}
+          approvedForms={approved}
+          gateRequired={gateOn}
+        />
       </div>
 
       <Card padded={false}>

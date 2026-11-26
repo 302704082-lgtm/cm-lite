@@ -8,10 +8,12 @@ export default function FreezeButton({
   id,
   code,
   disabled,
+  gateRequired,
 }: {
   id: number;
   code: string;
   disabled?: boolean;
+  gateRequired?: boolean;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -50,8 +52,12 @@ export default function FreezeButton({
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs text-slate-500">冻结 {code} 后条目只读，确定？</span>
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs text-slate-500">
+        {gateRequired
+          ? `冻结 ${code}：需先有已批准的《基线发布申请单》，确定？`
+          : `冻结 ${code} 后条目只读，确定？`}
+      </span>
       <button className={btnPrimary + ' !px-2 !py-1 !text-xs'} onClick={freeze} disabled={busy}>
         {busy ? '处理中…' : '确定冻结'}
       </button>

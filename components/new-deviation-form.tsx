@@ -4,7 +4,15 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { inputCls, labelCls, btnPrimary } from './ui';
 
-export default function NewDeviationForm({ cis }: { cis: { pn: string; name: string }[] }) {
+export default function NewDeviationForm({
+  cis,
+  approvedForms = [],
+  gateRequired = false,
+}: {
+  cis: { pn: string; name: string }[];
+  approvedForms?: { id: number; code: string; title: string }[];
+  gateRequired?: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
@@ -26,6 +34,7 @@ export default function NewDeviationForm({ cis }: { cis: { pn: string; name: str
           reason: String(form.get('reason') ?? '').trim(),
           qty_limit: Number(form.get('qty_limit') ?? 1),
           expire_at: String(form.get('expire_at') ?? ''),
+          request_form_id: gateRequired ? Number(form.get('request_form_id') ?? 0) : undefined,
         }),
       });
       const data = await res.json();
@@ -60,6 +69,26 @@ export default function NewDeviationForm({ cis }: { cis: { pn: string; name: str
         </button>
       </div>
       <form onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2">
+        {gateRequired ? (
+          <div className="sm:col-span-2">
+            <label className={labelCls}>关联的已批准申请单 *（没签完不许生效）</label>
+            <select name="request_form_id" className={inputCls} required defaultValue="">
+              <option value="" disabled>
+                请选择
+              </option>
+              {approvedForms.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.code} · {f.title}
+                </option>
+              ))}
+            </select>
+            {approvedForms.length === 0 ? (
+              <div className="mt-1 text-[11px] text-amber-600">
+                目前没有已批准的申请单，请先用上面的按钮新建并完成三级签署。
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div>
           <label className={labelCls}>类型</label>
           <select name="kind" className={inputCls} defaultValue="DEVIATION">

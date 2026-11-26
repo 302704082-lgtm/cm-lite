@@ -15,7 +15,7 @@ export default function ExportPanel({
   evidenceCount?: number;
 }) {
   const [id, setId] = useState<number | ''>(baselines[0]?.id ?? '');
-  const link = (path: string) => (id ? `${path}?baselineId=${id}` : path === '/api/export' ? '#' : path);
+  const qs = id ? `?baselineId=${id}` : '';
   const disabled = !id;
 
   return (
@@ -36,21 +36,27 @@ export default function ExportPanel({
           </select>
         </div>
         <a
-          href={link('/api/export')}
+          href={`/api/export${qs}`}
           className={btnGhost + (disabled ? ' pointer-events-none opacity-50' : '')}
           download
         >
-          导出《构型状态一览表》CSV
+          状态一览表 CSV（{`13 列`}）
         </a>
         <a
-          href={link('/api/evidence')}
-          className={btnPrimary}
-          download
+          href={`/api/export${qs}${qs ? '&' : '?'}mode=history`}
+          className={btnGhost + (disabled ? ' pointer-events-none opacity-50' : '')}
+          target="_blank"
+          rel="noreferrer"
         >
+          状态一览表 + 版本履历链（可打印）
+        </a>
+        <a href={`/api/evidence${qs}`} className={btnPrimary} download>
           导出证据包（HTML · 可打印成 PDF）
         </a>
       </div>
       <p className="mt-2.5 text-[11px] leading-5 text-slate-500">
+        状态一览表已按审查口径扩成 13 列（当前版本、受控状态、最新变更单号 / 内容 / 类别 / 状态、版本数、记录完整性等），
+        第二个按钮还会展开<b>每个构型项从首版到当前的完整版本履历链</b>，每一版对应哪张变更单一目了然。
         证据包会按「{ruleName ?? '内置默认规则'}」里填的材料清单，自动汇编成一套
         <span className="font-medium text-slate-700">「{evidenceTitle ?? '构型状态与更改证据包'}」</span>
         （共 {evidenceCount ?? 0} 份材料），带封面、目录和每份材料的真实数据表；直接用浏览器或 WPS 打开即可打印。

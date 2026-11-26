@@ -13,6 +13,8 @@ import { getEffectiveRules, slotToLabel } from '@/lib/profile';
 import { toCST } from '@/lib/format';
 import { Badge, Card, Empty, PageHeader, Td, Th } from '@/components/ui';
 import { CloseButton, ExecutePanel, SignPanel, ToCrButton } from '@/components/change-actions';
+import { getFlow, listInstances } from '@/lib/flow';
+import ChangeFlowPanel from '@/components/change-flow-panel';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,6 +55,10 @@ export default async function ChangeDetailPage({ params }: { params: Promise<{ i
   }
 
   const rules = await getEffectiveRules(user.tenantId);
+  const [flowSteps, flowForms] = await Promise.all([
+    getFlow(user.tenantId, 'CHANGE_FLOW'),
+    listInstances(user.tenantId, { targetType: 'change', targetId: id }),
+  ]);
   // 老单据（内置默认规则时代）存的是 interchange/wip 等旧键，新单据按配置存 i0/i1…
   // 两边兼容：单据里出现配置键就按配置清单显示，否则按老 9 项显示。
   const storedKeys = Object.keys(impact);
@@ -203,6 +209,31 @@ export default async function ChangeDetailPage({ params }: { params: Promise<{ i
         </div>
 
         <div className="space-y-5 lg:col-span-2">
+          {change.kind !== 'CN' ? (
+            <Card padded={false}>
+              <div className="border-b border-slate-100 px-5 py-3 text-sm font-semibold text-slate-800">
+                流程步骤与表单
+              </div>
+              <ChangeFlowPanel
+                changeId={change.id}
+                steps={flowSteps.map((s) => ({
+                  step_no: s.step_no,
+                  step_name: s.step_name,
+                  form_code: s.form_code,
+                  role_label: s.role_label,
+                  gate: s.gate,
+                }))}
+                forms={flowForms.map((f) => ({
+                  id: f.id,
+                  code: f.code,
+                  scene: f.scene,
+                  status: f.status,
+                  title: f.title,
+                }))}
+              />
+            </Card>
+          ) : null}
+
           {change.kind === 'CR' ? (
             <Card padded={false}>
               <div className="border-b border-slate-100 px-5 py-3 text-sm font-semibold text-slate-800">审批链</div>

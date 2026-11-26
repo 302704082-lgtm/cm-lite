@@ -4,10 +4,32 @@ import { CLASS_CHAINS, ROLE_NAMES, type RoleCode } from './constants';
 import { chainFor, normalizeImpact, validateWizard, type WizardInput } from './rules';
 import { classToSlot, getEffectiveRules, slotToLabel } from './profile';
 import { logEvent } from './events';
+import { assertFlowGates } from './flow';
 import type { SessionUser } from './session';
 import type { Approval, Change, Ci } from './types';
 
 const YEAR = new Date().getFullYear();
+
+/** 记一条构型项版本履历（表不存在时静默跳过，不阻断主流程） */
+async function recordRevision(
+  tenantId: number,
+  pn: string,
+  rev: string,
+  changeCode: string,
+  classResult: string | null,
+  note: string,
+  actor: string,
+): Promise<void> {
+  try {
+    await exec(
+      `INSERT INTO ci_revisions (tenant_id, pn, rev, change_code, class_result, note, actor)
+       VALUES (?,?,?,?,?,?,?)`,
+      [tenantId, pn, rev, changeCode, classResult, note, actor],
+    );
+  } catch {
+    // 履历表未初始化时不影响变更落库
+  }
+}
 
 /** 租户内按类型自增：PR-2026-001 / CR-2026-001 / CN-2026-001 */
 export async function nextCode(tenantId: number, kind: 'PR' | 'CR' | 'CN'): Promise<string> {
@@ -328,6 +350,16 @@ export async function executeChange(
       'write',
     );
 
+    await recordRevision(
+      user.tenantId,
+      cr.new_pn!,
+      rules.ident.rev_format,
+      cnCode,
+      cr.class_result,
+      `由 ${oldCi.pn} 大改换号新建（${cr.code}）`,
+      user.name,
+    );
+
     await logEvent(
       user.tenantId,
       user.name,
@@ -349,6 +381,16 @@ export async function executeChange(
         },
       ],
       'write',
+    );
+
+    await recordRevision(
+      user.tenantId,
+      oldCi.pn,
+      cr.to_rev!,
+      cnCode,
+      cr.class_result,
+      `由 ${cr.from_rev ?? '?'} 升版（${cr.code}）${verified ? '，验证通过' : ''}`,
+      user.name,
     );
 
     await logEvent(
@@ -386,6 +428,9 @@ export async function closeChange(user: SessionUser, changeId: number): Promise<
   if (rules.switches.verify && cn.verified !== 1) {
     throw new ApiError(409, '执行人未勾选「验证通过」，不能关闭');
   }
+
+  // 流程配置里第 2 步以后勾了「闸门」的环节，必须对应表单已批准才允许关闭
+  await assertFlowGates(user.tenantId, 'CHANGE_FLOW', 'change', changeId, '变更不能关闭');
 
   await exec(
     `UPDATE changes SET status = 'CLOSED', closed_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`,

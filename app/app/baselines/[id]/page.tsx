@@ -7,6 +7,8 @@ import { CI_STATUS_NAMES } from '@/lib/constants';
 import { toCST } from '@/lib/format';
 import { Badge, Card, Empty, PageHeader, Td, Th, btnPrimary } from '@/components/ui';
 import FreezeButton from '@/components/freeze-button';
+import GatePanel from '@/components/gate-panel';
+import { gateEnabled, listInstances } from '@/lib/flow';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +32,10 @@ export default async function BaselineDetailPage({
   const items = await listBaselineItems(id);
   const others = (await listBaselines(user.tenantId, bl.model)).filter((b) => b.id !== bl.id);
   const rules = await getEffectiveRules(user.tenantId);
+  const [releaseForms, gateOn] = await Promise.all([
+    listInstances(user.tenantId, { scene: 'BASELINE_RELEASE', targetType: 'baseline', targetId: id }),
+    gateEnabled(user.tenantId, 'BASELINE_RELEASE'),
+  ]);
 
   const { to } = await searchParams;
   const toId = to ? Number(to) : null;
@@ -48,6 +54,22 @@ export default async function BaselineDetailPage({
         }
       />
 
+      <GatePanel
+        scene="BASELINE_RELEASE"
+        title="基线发布申请单（冻结前必办）"
+        desc="冻结不是点一下就完成：先出一张申请单，把这份基线里要冻结的全部构型项及版本逐条列出来，检查单逐项判定（含问题报告 / 偏离许可状态），再由申请人、审核人、批准人按顺序签完。三签齐备后，「冻结」按钮才会放行。"
+        instances={releaseForms.map((f) => ({
+          id: f.id,
+          code: f.code,
+          title: f.title,
+          status: f.status,
+        }))}
+        targetType="baseline"
+        targetId={bl.id}
+        autoItems
+        enabled={gateOn}
+      />
+
       <div className="mb-5 flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm">
         <Badge tone={bl.status === 'FROZEN' ? 'green' : 'amber'}>
           {bl.status === 'FROZEN' ? '已冻结' : '草稿'}
@@ -55,7 +77,7 @@ export default async function BaselineDetailPage({
         <span className="text-xs text-slate-500">创建 {toCST(bl.created_at)}</span>
         <span className="text-xs text-slate-500">冻结 {toCST(bl.frozen_at)}</span>
         <span className="flex-1" />
-        <FreezeButton id={bl.id} code={bl.code} disabled={bl.status === 'FROZEN'} />
+        <FreezeButton id={bl.id} code={bl.code} disabled={bl.status === 'FROZEN'} gateRequired={gateOn} />
       </div>
 
       <Card padded={false} className="mb-5">

@@ -7,6 +7,8 @@ import { CHANGE_KIND_NAMES, CHANGE_STATUS_NAMES } from '@/lib/constants';
 import { toCST } from '@/lib/format';
 import { Badge, Card, Empty, PageHeader, Td, Th } from '@/components/ui';
 import NewPrForm from '@/components/new-pr-form';
+import GatePanel from '@/components/gate-panel';
+import { gateEnabled, listInstances } from '@/lib/flow';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,18 +39,36 @@ export default async function ChangesPage({
   const { kind, status } = await searchParams;
   const models = await listModels(user.tenantId);
   const model = models[0] ?? 'EX-01';
-  const [changes, cis, rules] = await Promise.all([
+  const [changes, cis, rules, requestForms, gateOn] = await Promise.all([
     listChanges(user.tenantId, { kind: kind || undefined, status: status || undefined }),
     listCis(user.tenantId, model),
     getEffectiveRules(user.tenantId),
+    listInstances(user.tenantId, { scene: 'CHANGE_REQUEST' }),
+    gateEnabled(user.tenantId, 'CHANGE_REQUEST'),
   ]);
+  const approved = requestForms
+    .filter((f) => f.status === 'APPROVED')
+    .map((f) => ({ id: f.id, code: f.code, title: f.title }));
 
   return (
     <div>
       <PageHeader title="变更" desc="变更唯一入口 PR → CR → CN；CR 的审批链挂在 CR 上" />
 
+      <GatePanel
+        scene="CHANGE_REQUEST"
+        title="变更申请与可行性评审（新建变更前必办）"
+        desc="变更不能「说建就建」：先提交申请单写清变更原因、变更前后方案、拟变更类别，组织可行性评审形成结论，检查单逐项判定，再经提出申请 → 可行性评审 → 批准立项三级签署。只有已批准的申请单才能发起正式变更单。"
+        instances={requestForms.map((f) => ({ id: f.id, code: f.code, title: f.title, status: f.status }))}
+        enabled={gateOn}
+      />
+
       <div className="mb-5">
-        <NewPrForm model={model} cis={cis.map((c) => ({ pn: c.pn, name: c.name, rev: c.rev }))} />
+        <NewPrForm
+          model={model}
+          cis={cis.map((c) => ({ pn: c.pn, name: c.name, rev: c.rev }))}
+          approvedForms={approved}
+          gateRequired={gateOn}
+        />
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-1.5 text-xs">

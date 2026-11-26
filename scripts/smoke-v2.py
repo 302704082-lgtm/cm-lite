@@ -133,11 +133,35 @@ def main():
     if not ci_pn:
         print('无法继续'); return 1
 
+    # v3 起「新建变更」前必须有已批准的《变更申请与可行性评审单》
+    air = Client()
+    st, _ = air.login(by_role['AIRWORTHINESS'])
+    chair = Client()
+    st, _ = chair.login(by_role['CCB_CHAIR'])
+    st, f = designer.req('/api/forms', {
+        'templateCode': 'CHANGE_REQUEST', 'title': 'v2 回归：变更申请与可行性评审',
+    })
+    rq_id = f.get('id') if isinstance(f, dict) else None
+    check('v2 回归：新建变更申请单', st == 201 and rq_id, f'{st} {f}'[:200])
+    if rq_id:
+        st, fd = designer.req(f'/api/forms/{rq_id}')
+        checks = [{'key': c['key'], 'label': c['label'], 'result': 'PASS'} for c in fd.get('checks', [])]
+        designer.req(f'/api/forms/{rq_id}/save', {'data': {
+            'model': 'EX-01', 'ci_pn': ci_pn, 'title': '冒烟：小改升版',
+            'reason': '验证规则引擎接入', 'plan': 'V1.0 → V1.1',
+            'proposed_class': '小改', 'review_conclusion': '评审通过',
+        }, 'checks': checks})
+        designer.req(f'/api/forms/{rq_id}/submit', {})
+        designer.req(f'/api/forms/{rq_id}/sign', {'stepNo': 1, 'decision': 'APPROVE'})
+        air.req(f'/api/forms/{rq_id}/sign', {'stepNo': 2, 'decision': 'APPROVE'})
+        chair.req(f'/api/forms/{rq_id}/sign', {'stepNo': 3, 'decision': 'APPROVE'})
+
     st, j = designer.req('/api/changes', {
         'model': 'EX-01', 'ci_pn': ci_pn, 'title': '冒烟：小改升版', 'reason': '验证规则引擎接入',
+        'request_form_id': rq_id,
     })
     pr_id = j.get('id') if isinstance(j, dict) else None
-    check('创建 PR', st == 201 and pr_id, f'{st} {j}'[:200])
+    check('创建 PR（凭已批准申请单通过闸门）', st == 201 and pr_id, f'{st} {j}'[:200])
     if not pr_id:
         return 1
 

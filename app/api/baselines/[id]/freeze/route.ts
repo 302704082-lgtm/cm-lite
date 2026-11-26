@@ -1,6 +1,7 @@
 import { q1, exec } from '@/lib/db';
 import { ApiError, handle, ok, requireUser, toId } from '@/lib/api';
 import { logEvent } from '@/lib/events';
+import { assertApproved, gateEnabled } from '@/lib/flow';
 import type { Baseline } from '@/lib/types';
 
 export const runtime = 'nodejs';
@@ -22,6 +23,17 @@ export async function POST(
     ]);
     if (!bl) throw new ApiError(404, '基线不存在');
     if (bl.status === 'FROZEN') throw new ApiError(409, '该基线已冻结，不能重复冻结');
+
+    // 闸门：有启用的「基线发布申请单」模板时，必须先有一张三签齐备、已批准的单子
+    if (await gateEnabled(user.tenantId, 'BASELINE_RELEASE')) {
+      await assertApproved(
+        user.tenantId,
+        'BASELINE_RELEASE',
+        'baseline',
+        id,
+        '基线不能直接冻结，需先走《基线发布申请单》',
+      );
+    }
 
     await exec(
       `UPDATE baselines SET status = 'FROZEN', frozen_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?`,

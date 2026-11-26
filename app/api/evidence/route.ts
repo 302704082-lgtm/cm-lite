@@ -47,6 +47,7 @@ interface Material {
   headers: string[];
   rows: Cell[][];
   extra?: Extra;
+  html?: string;
 }
 
 /**
@@ -251,9 +252,71 @@ async function material(
   };
 }
 
+/** 受控表单与签署记录：按制度该出的每一张单，逐张列出并可单独打印归档 */
+async function formsMaterial(tenantId: number): Promise<Material> {
+  type FormRow = Row & { id: number };
+  let forms: FormRow[] = [];
+  let signoffs: Row[] = [];
+  try {
+    forms = await q<FormRow>(
+      `SELECT i.id, i.code, i.title, i.scene, i.status, i.target_type, i.target_id,
+              i.created_by, i.created_at, i.submitted_at, i.closed_at, t.name AS template_name
+         FROM form_instances i LEFT JOIN form_templates t ON t.id = i.template_id
+        WHERE i.tenant_id = ? ORDER BY i.id DESC`,
+      [tenantId],
+    );
+    signoffs = await q<Row>(
+      `SELECT f.instance_id, f.step_no, f.step_name, f.role_label, f.signer_name, f.decision, f.signed_at
+         FROM form_signoffs f JOIN form_instances i ON i.id = f.instance_id
+        WHERE i.tenant_id = ? ORDER BY f.instance_id, f.step_no`,
+      [tenantId],
+    );
+  } catch {
+    return {
+      desc: '表单中心尚未初始化；启用后，按制度出的每张申请单与签署记录会自动进入本材料。',
+      headers: [],
+      rows: [],
+    };
+  }
+
+  const byInst = new Map<number, string[]>();
+  for (const sg of signoffs) {
+    const id = Number(sg.instance_id);
+    if (!byInst.has(id)) byInst.set(id, []);
+    byInst.get(id)!.push(
+      `第 ${s(sg, 'step_no')} 步 ${s(sg, 'step_name')}（${s(sg, 'role_label')}）：${s(sg, 'signer_name') || '—'} · ${s(sg, 'decision') === 'APPROVE' ? '同意' : '驳回'} · ${s(sg, 'signed_at')}`,
+    );
+  }
+
+  const statusText: Record<string, string> = {
+    DRAFT: '草稿', SUBMITTED: '待签署', APPROVED: '已批准', REJECTED: '已驳回',
+  };
+  const html =
+    `<p class="desc">共 ${forms.length} 张受控单据。每张单都有独立编号、检查单判定与逐级签署记录，可单独打印归档。</p>` +
+    (forms.length === 0
+      ? '<p class="empty">（当前还没有单据）</p>'
+      : forms
+          .map((f) => {
+            const signs = byInst.get(Number(f.id)) ?? [];
+            return `<div class="formcard">
+              <div class="fh"><b>${esc(s(f, 'code'))} · ${esc(s(f, 'title') || s(f, 'template_name'))}</b>
+                <span>${esc(statusText[s(f, 'status')] ?? s(f, 'status'))} · ${esc(s(f, 'created_by'))} · ${esc(s(f, 'created_at'))}</span>
+                <a href="/api/forms/${Number(f.id)}?format=html" target="_blank">单独打印这张单 →</a></div>
+              <div class="fb">模板：${esc(s(f, 'template_name'))}　·　场景：${esc(s(f, 'scene'))}　·　
+                提交：${esc(s(f, 'submitted_at') || '—')}　·　批准：${esc(s(f, 'closed_at') || '—')}</div>
+              ${signs.length ? `<ul class="fl">${signs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : '<div class="fb">（尚无签署记录）</div>'}
+            </div>`;
+          })
+          .join(''));
+
+  return { desc: '按制度出的每一张申请单，含检查单判定与逐级签署记录', headers: [], rows: [], html };
+}
+
 function renderMaterial(no: number, name: string, m: Material): string {
   let body: string;
-  if (m.extra) {
+  if (m.html) {
+    body = m.html;
+  } else if (m.extra) {
     body =
       `<h4>基线目录</h4>${table(m.extra.blHeaders, m.extra.blRows)}` +
       `<h4>快照条目</h4>${table(m.extra.itHeaders, m.extra.itRows)}`;
@@ -262,9 +325,12 @@ function renderMaterial(no: number, name: string, m: Material): string {
   } else {
     body = '<p class="empty">（本项暂无对应数据源，章节已保留在目录中）</p>';
   }
+  const count = m.html
+    ? ''
+    : `　·　记录数：${m.rows.length || (m.extra ? m.extra.itRows.length : 0)}`;
   return `<section class="mat">
     <h2><span class="no">${no}</span>${esc(name)}</h2>
-    <p class="desc">${esc(m.desc)}　·　记录数：${m.rows.length || (m.extra ? m.extra.itRows.length : 0)}</p>
+    <p class="desc">${esc(m.desc)}${count}</p>
     ${body}
   </section>`;
 }
@@ -295,8 +361,12 @@ export async function GET(req: Request): Promise<Response> {
       const m = await material(name, user.tenantId, baselineId, rules);
       sections.push(renderMaterial(i + 1, name, m));
     }
+    // 固定追加：按制度出的受控表单与签署记录（不依赖材料清单配置，避免漏项）
+    const formName = '受控表单与签署记录';
+    const formMat = await formsMaterial(user.tenantId);
+    sections.push(renderMaterial(rules.evidence.length + 1, formName, formMat));
 
-    const toc = rules.evidence
+    const toc = [...rules.evidence, formName]
       .map((name, i) => `<li><span>${i + 1}</span>${esc(name)}</li>`)
       .join('');
 
@@ -330,6 +400,13 @@ export async function GET(req: Request): Promise<Response> {
   th { background: #f1f5f9; font-weight: 600; white-space: nowrap; }
   tr:nth-child(even) td { background: #fafafa; }
   .empty { color: #94a3b8; font-size: 12px; padding: 10px 0; }
+  .formcard { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; margin: 0 0 10px; page-break-inside: avoid; }
+  .formcard .fh { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font-size: 12px; }
+  .formcard .fh span { color: #64748b; font-size: 11px; }
+  .formcard .fh a { margin-left: auto; color: #4f46e5; font-size: 11px; }
+  .formcard .fb { color: #64748b; font-size: 11px; margin-top: 5px; }
+  .formcard ul.fl { margin: 6px 0 0; padding-left: 18px; font-size: 11px; color: #475569; }
+  .formcard ul.fl li { padding: 1px 0; }
   footer { margin-top: 32px; border-top: 1px solid #e2e8f0; padding-top: 10px;
            color: #94a3b8; font-size: 11px; line-height: 1.8; }
   @media print { body { padding: 0; } .cover { page-break-after: always; } }
@@ -340,7 +417,7 @@ export async function GET(req: Request): Promise<Response> {
   <div class="meta">
     <div><b>机型</b>${esc(model)}</div>
     <div><b>生效规矩</b>${esc(rules.name)}${rules.enabled ? '（已启用）' : '（内置默认）'}</div>
-    <div><b>材料份数</b>${rules.evidence.length} 份</div>
+    <div><b>材料份数</b>${rules.evidence.length + 1} 份（含受控表单）</div>
     <div><b>生成时间</b>${esc(now)} UTC</div>
     <div><b>类别口径</b>${esc(rules.classes.map((c) => c.label).join(' / '))}</div>
     <div><b>基线口径</b>${esc(rules.baselines.map((b) => b.label).join(' / '))}</div>
@@ -350,8 +427,9 @@ export async function GET(req: Request): Promise<Response> {
 ${sections.join('\n')}
 <footer>
   说明：① 目录顺序、类别口径、基线口径均来自「规则配置」第一层，换一套规矩无需改代码。<br>
-  ② 事件台账由数据库触发器保证只追加；审批记录一经签署不可修改。<br>
-  ③ 本文件为系统自动生成的证据汇编，正式提交前请按本单位制度履行签署盖章手续。
+  ② 事件台账由数据库触发器保证只追加；审批记录与表单签署一经落库不可修改。<br>
+  ③ 最后一章「受控表单与签署记录」列出按制度出的每张申请单，点链接可单独打印归档。<br>
+  ④ 本文件为系统自动生成的证据汇编，正式提交前请按本单位制度履行签署盖章手续。
 </footer>
 </body></html>`;
 
